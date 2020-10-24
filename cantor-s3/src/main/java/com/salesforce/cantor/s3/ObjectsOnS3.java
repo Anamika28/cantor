@@ -159,12 +159,7 @@ public class ObjectsOnS3 implements StreamingObjects {
     public InputStream stream(final String namespace, final String key) throws IOException {
         checkString(namespace);
         checkString(key);
-        try {
-            return doStream(namespace, key);
-        } catch (final AmazonS3Exception e) {
-            logger.warn("exception streaming:", e);
-            return null;
-        }
+        return doStream(namespace, key);
     }
 
     // creating an empty marker object to signify the creation of the namespace

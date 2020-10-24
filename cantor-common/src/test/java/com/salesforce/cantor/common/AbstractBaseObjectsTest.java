@@ -212,5 +212,4 @@ public abstract class AbstractBaseObjectsTest extends AbstractBaseCantorTest {
     private Objects getObjects() throws IOException {
         return getCantor().objects();
     }
-
 }
