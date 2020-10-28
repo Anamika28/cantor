@@ -15,19 +15,50 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.*;
 
+import static com.salesforce.cantor.common.CommonPreconditions.checkArgument;
+import static com.salesforce.cantor.common.CommonPreconditions.checkString;
+
 public class EventsOnObjects implements Events {
     private static final Logger logger = LoggerFactory.getLogger(EventsOnObjects.class);
-    private static final String metadataKeyPayloadGuid = ".payload-object-guid";
-    private static final long minPayloadSizeBytes = 1024 * 1024;
-    private final String objectsNamespace;
+    private static final String metadataKeyPayloadGuid = ".payload-objects-guid";
 
-    private final Objects objectsDelegate;
     private final Events eventsDelegate;
+    private final Objects objectsDelegate;
+    private final String objectsNamespace;
+    private final long minPayloadSizeBytes;
 
+    /**
+     * Store event payloads as objects in a separate namespace
+     *
+     * @param eventsDelegate delegate events used for storing event metadata/dimensions
+     * @param objectsDelegates delegate objects used for storing payloads
+     * @param objectsNamespace objects namespace used for storing payloads in
+     */
     public EventsOnObjects(final Events eventsDelegate, final Objects objectsDelegates, final String objectsNamespace) {
+        this(eventsDelegate, objectsDelegates, objectsNamespace, 0L);
+    }
+
+    /**
+     * Store event payloads as objects in a separate namespace
+     *
+     * @param eventsDelegate delegate events used for storing event metadata/dimensions
+     * @param objectsDelegates delegate objects used for storing payloads
+     * @param objectsNamespace objects namespace used for storing payloads in
+     * @param minPayloadSizeBytes payloads larger that this many bytes will be stored separately
+     */
+    public EventsOnObjects(final Events eventsDelegate,
+                           final Objects objectsDelegates,
+                           final String objectsNamespace,
+                           final long minPayloadSizeBytes) {
+        checkArgument(eventsDelegate != null, "null events delegate");
+        checkArgument(objectsDelegates != null, "null objects delegate");
+        checkString(objectsNamespace, "null/empty objects namespace");
+        checkArgument(minPayloadSizeBytes >= 0, "invalid min payload size");
+
         this.eventsDelegate = eventsDelegate;
         this.objectsDelegate = objectsDelegates;
         this.objectsNamespace = objectsNamespace;
+        this.minPayloadSizeBytes = minPayloadSizeBytes;
     }
 
     @Override
@@ -36,7 +67,7 @@ public class EventsOnObjects implements Events {
         final Map<String, byte[]> payloads = new HashMap<>();
         for (final Event e : batch) {
             // if there is a payload and it is larger than the min limit, then store the payload in s3
-            if (e.getPayload() == null || e.getPayload().length < minPayloadSizeBytes) {
+            if (e.getPayload() == null || e.getPayload().length == 0 || e.getPayload().length < this.minPayloadSizeBytes) {
                 continue;
             }
             final String payloadGuid = UUID.randomUUID().toString();
@@ -59,26 +90,30 @@ public class EventsOnObjects implements Events {
                            final boolean includePayloads,
                            final boolean ascending,
                            final int limit) throws IOException {
-        final List<Event> results = this.eventsDelegate.get(namespace, startTimestampMillis, endTimestampMillis, metadataQuery, dimensionsQuery, includePayloads, ascending, limit);
+        final List<Event> results = this.eventsDelegate.get(
+                namespace, startTimestampMillis, endTimestampMillis,
+                metadataQuery, dimensionsQuery, includePayloads, ascending, limit
+        );
         if (!includePayloads) {
             return results;
         }
+
+        final List<Event> resultsWithPayload = new ArrayList<>(results.size());
         // if a payload guid metadata is found, fetch the payload bytes from s3 and attach to the event object
         for (final Event e : results) {
             if (!e.getMetadata().containsKey(metadataKeyPayloadGuid)) {
+                resultsWithPayload.add(e);
                 continue;
             }
             final String payloadGuid = e.getMetadata().get(metadataKeyPayloadGuid);
-            e.getMetadata().remove(metadataKeyPayloadGuid);
             final byte[] payload = this.objectsDelegate.get(this.objectsNamespace, payloadGuid);
             if (payload == null) {
                 logger.warn("cannot find payload on S3 with guid: {}", payloadGuid);
             } else {
-                results.add(new Event(e.getTimestampMillis(), e.getMetadata(), e.getDimensions(), payload));
-                results.remove(e);
+                resultsWithPayload.add(new Event(e.getTimestampMillis(), e.getMetadata(), e.getDimensions(), payload));
             }
         }
-        return results;
+        return resultsWithPayload;
     }
 
     @Override
@@ -134,11 +169,16 @@ public class EventsOnObjects implements Events {
         this.eventsDelegate.drop(namespace);
     }
 
-    protected String storePayload(final byte[] payload) {
-
+    protected String getGuidPayloadGuid(final String namespace, final Event event) {
+        return String.format("%s_%d_%s",
+                trim(namespace), event.getTimestampMillis(), UUID.randomUUID().timestamp()
+        );
     }
 
-    protected byte[] getPayload(final String metadataKeyPayloadGuid) {
-
+    protected String trim(final String namespace) {
+        final String cleanName = namespace.replaceAll("[^A-Za-z0-9_\\-]", "").toLowerCase();
+        return String.format("%s-%s",
+                cleanName.substring(0, Math.min(16, cleanName.length())), Math.abs(namespace.hashCode()));
     }
+
 }
