@@ -32,10 +32,11 @@ import static com.salesforce.cantor.common.ObjectsPreconditions.checkStore;
 public class ObjectsOnS3 implements StreamingObjects {
     private static final Logger logger = LoggerFactory.getLogger(ObjectsOnS3.class);
 
-    // cantor-namespace-<namespace>
-    private static final String namespaceFileFormat = "cantor-namespace-%s";
-    // cantor-object-[<namespace>]-<key>
-    private static final String objectFileFormat = "cantor-object-[%s]-%s";
+    private static final String namespacePrefix = "cantor-objects-";
+    // cantor-objects-<namespace>
+    private static final String namespaceFileFormat = "cantor-objects-%s/";
+    // cantor-objects-<namespace>/<key>
+    private static final String objectFileFormat = "cantor-objects-%s/%s";
 
     private final AmazonS3 s3Client;
     private final String bucketName;
@@ -226,7 +227,6 @@ public class ObjectsOnS3 implements StreamingObjects {
     }
 
     private Collection<String> doGetNamespaces() throws IOException {
-        final String namespacePrefix = getNamespaceKey("");
         return S3Utils.getKeys(this.s3Client, this.bucketName, namespacePrefix, 0, -1)
                 .stream()
                 .map(namespaceFile -> namespaceFile.substring(namespacePrefix.length()))

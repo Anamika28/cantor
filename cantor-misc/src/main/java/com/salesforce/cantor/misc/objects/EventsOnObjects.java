@@ -70,7 +70,7 @@ public class EventsOnObjects implements Events {
             if (e.getPayload() == null || e.getPayload().length == 0 || e.getPayload().length < this.minPayloadSizeBytes) {
                 continue;
             }
-            final String payloadGuid = UUID.randomUUID().toString();
+            final String payloadGuid = getPayloadGuid(namespace, e);
             payloads.put(payloadGuid, e.getPayload());
             e.getMetadata().put(metadataKeyPayloadGuid, payloadGuid);
             events.add(new Event(e.getTimestampMillis(), e.getMetadata(), e.getDimensions(), null));
@@ -169,7 +169,7 @@ public class EventsOnObjects implements Events {
         this.eventsDelegate.drop(namespace);
     }
 
-    protected String getGuidPayloadGuid(final String namespace, final Event event) {
+    protected String getPayloadGuid(final String namespace, final Event event) {
         return String.format("%s_%d_%s",
                 trim(namespace), event.getTimestampMillis(), UUID.randomUUID().timestamp()
         );
@@ -180,5 +180,4 @@ public class EventsOnObjects implements Events {
         return String.format("%s-%s",
                 cleanName.substring(0, Math.min(16, cleanName.length())), Math.abs(namespace.hashCode()));
     }
-
 }
